@@ -1,50 +1,60 @@
-use std::io::{self, BufRead, BufReader};
+use std::io::{self, BufRead, BufReader, Write};
 use std::fs::File;
 use std::path::PathBuf;
+use std::process::exit;
 use std::time::Instant;
 use rfd::FileDialog;
-use mysql_async::prelude::*;
+use mysql_async::{prelude::*, Pool, Conn};
 use tokio;
 
 mod utils;
 use crate::utils::connection::connection;
-use crate::utils::colors::{Colors, print_text_colored};
+
+fn print_text(text: &str) {
+	print!("{} ", text.to_string());
+	io::stdout().flush().unwrap();
+}
 
 #[tokio::main]
 async fn main() {
-	print_text_colored("Deseja selecionar o arquivo? S/N", Colors::Yellow);
+	print_text("Qual o nome do banco de dados?");
+	let mut db_name = String::new();
+	io::stdin().read_line(&mut db_name).expect("Erro ao gravar nome do db");
+
+	let (connection, conn) = connection(&db_name).await;
+
+	print_text("Deseja selecionar o arquivo? S/N");
 	let mut choice = String::new();
 	io::stdin().read_line(&mut choice).unwrap();
 	let choice = choice.trim().to_lowercase().chars().next().unwrap();
 	match choice {
-		's' => execute_task().await,
-		'n' => print_text_colored("Até mais 👋", Colors::Purple),
-		_ => print_text_colored("Somente S/N", Colors::Red),
+		's' => execute_task(connection, conn).await,
+		'n' => println!("Até mais 👋"),
+		_ => println!("Somente S/N"),
 	}
 }
 
-async fn execute_task() {
+async fn execute_task(connection: Pool, conn: Conn) {
 	let files = FileDialog::new()
 		.add_filter("sql", &["sql"])
 		.set_directory("/")
 		.pick_file();
 	match files {
 		Some(file) => {
-			install_file(file).await
+			install_file(file, connection, conn).await
 		},
-		None => print_text_colored("Não escolheu nenhum arquivo", Colors::Red)
+		None => println!("Não escolheu nenhum arquivo")
 	}
 }
 
-async fn install_file(file: PathBuf)  {
+async fn install_file(file: PathBuf, connection: Pool, mut conn: Conn)  {
 	let file_read = File::open(&file).expect("Erro ao ler o arquivo");
 	let reader = BufReader::new(&file_read);
-
-	let (connection, mut conn) = connection().await;
 
 	let mut command_block = String::new();
 	let start_time = Instant::now();
 
+	println!("Em andamento, aguarde...");
 	for line in reader.lines() {
 		if let Ok(sql_line) = line {
 			if !&sql_line.trim().starts_with('-') && !&sql_line.trim().is_empty() {
@@ -71,6 +81,11 @@ async fn install_file(file: PathBuf)  {
 
 	let elapsed_time = Instant::now() - start_time;
 
-	print_text_colored("Sucesso ao inserir os dados 🤙", Colors::Green);
-	print_text_colored(&format!("Tempo decorrido da instalação: {:?}", elapsed_time), Colors::Purple);
+	println!("Sucesso ao inserir os dados 🤙");
+	println!("Tempo decorrido da instalação: {:?}", elapsed_time);
+	let mut touch_exit = String::new();
+	io::stdin().read_line(&mut touch_exit).unwrap();
+	if !touch_exit.is_empty() {
+		exit(1);
+	}
 }
