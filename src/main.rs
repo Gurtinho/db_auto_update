@@ -1,36 +1,62 @@
-use std::io::{self, BufRead, BufReader, Write};
+use tokio;
+use std::io::{self, BufRead, BufReader};
 use std::fs::File;
 use std::path::PathBuf;
 use std::process::exit;
 use std::time::Instant;
+use std::sync::{ mpsc, Arc, Mutex};
+use colored::Colorize;
 use rfd::FileDialog;
-use mysql_async::{prelude::*, Pool, Conn};
-use tokio;
+use mysql_async::{prelude::*, Conn, Opts, Pool};
+use console::{self, Term};
 
 mod utils;
 use crate::utils::connection::connection;
-
-fn print_text(text: &str) {
-	print!("{} ", text.to_string());
-	io::stdout().flush().unwrap();
-}
+use crate::utils::print_text::print_text;
+use utils::print_text::Colors;
 
 #[tokio::main]
+#[warn(unused_assignments)]
 async fn main() {
-	print_text("Qual o nome do banco de dados?");
+	print_text("Qual o nome do banco de dados?", Colors::Green);
 	let mut db_name = String::new();
 	io::stdin().read_line(&mut db_name).expect("Erro ao gravar nome do db");
 
-	let (connection, conn) = connection(&db_name).await;
+	let (mut connection, mut conn, db_host) = connection().await;
 
-	print_text("Deseja selecionar o arquivo? S/N");
+	let conn_query = conn.query_drop(format!("create database {}", &db_name)).await;
+  match conn_query {
+    Ok(_) => {
+      connection = Pool::new(Opts::from_url(&format!("{}/{}", &db_host, &db_name)).unwrap());
+      conn = connection.get_conn().await.unwrap();
+    },
+    Err(_) => {
+			print_text("Esse Banco existe, deseja sobreescrever? S/N", Colors::Green);
+			let mut confirm: String = String::new();
+			io::stdin().read_line(&mut confirm).expect("Erro ao receber os dados");
+			let confirm = confirm.trim().to_lowercase().chars().next().unwrap();
+			match confirm {
+				's' => {
+					conn.query_drop(format!("drop database {}", &db_name)).await.unwrap();
+					conn.query_drop(format!("create database {}", &db_name)).await.unwrap();
+					connection = Pool::new(Opts::from_url(&format!("{}/{}", &db_host, &db_name)).unwrap());
+					conn = connection.get_conn().await.unwrap();
+				},
+				'n' => exit(1),
+				_ => exit(1)
+			};
+
+    }
+  }
+
+	print_text("Deseja selecionar o arquivo? S/N", Colors::Green);
 	let mut choice = String::new();
 	io::stdin().read_line(&mut choice).unwrap();
 	let choice = choice.trim().to_lowercase().chars().next().unwrap();
 	match choice {
 		's' => execute_task(connection, conn).await,
-		'n' => println!("Até mais 👋"),
-		_ => println!("Somente S/N"),
+		'n' => println!("{}", "Até mais 👋".blue().bold()),
+		_ => println!("{}", "Somente S/N".red().bold()),
 	}
 }
 
@@ -43,7 +69,7 @@ async fn execute_task(connection: Pool, conn: Conn) {
 		Some(file) => {
 			install_file(file, connection, conn).await
 		},
-		None => println!("Não escolheu nenhum arquivo")
+		None => println!("{}", "Não escolheu nenhum arquivo".red().bold())
 	}
 }
 
@@ -54,7 +80,8 @@ async fn install_file(file: PathBuf, connection: Pool, mut conn: Conn)  {
 	let mut command_block = String::new();
 	let start_time = Instant::now();
 
-	println!("Em andamento, aguarde...");
+	println!("{}", "Em andamento, aguarde...".green().bold());
+
 	for line in reader.lines() {
 		if let Ok(sql_line) = line {
 			if !&sql_line.trim().starts_with('-') && !&sql_line.trim().is_empty() {
@@ -81,8 +108,10 @@ async fn install_file(file: PathBuf, connection: Pool, mut conn: Conn)  {
 
 	let elapsed_time = Instant::now() - start_time;
 
-	println!("Sucesso ao inserir os dados 🤙");
-	println!("Tempo decorrido da instalação: {:?}", elapsed_time);
+	println!("{}", "Sucesso ao inserir os dados 🤙".green().bold());
+	println!("{}", format!("Tempo decorrido da instalação: {:?}", elapsed_time).purple().bold());
+
+	println!("{}", "Digite qualquer tecla para sair...".white().bold());
 	let mut touch_exit = String::new();
 	io::stdin().read_line(&mut touch_exit).unwrap();
 	if !touch_exit.is_empty() {
