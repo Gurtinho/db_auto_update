@@ -13,10 +13,10 @@ pub async fn connection(db_name: &String) -> (Pool, Conn) {
     },
     Err(_) => {
       conn.query_drop(format!("drop database {}", &db_name)).await.unwrap();
-      conn.query_drop(format!("create database {}", &db_name)).await.unwrap();
-      let connect = Pool::new(Opts::from_url(&format!("{}/{}", &db_host, &db_name)).unwrap());
-      let conn = connect.get_conn().await.unwrap();
-      (connect, conn)
+			conn.query_drop(format!("create database {}", &db_name)).await.unwrap();
+			let connect = Pool::new(Opts::from_url(&format!("{}/{}", &db_host, &db_name)).unwrap());
+			let conn = connect.get_conn().await.unwrap();
+			(connect, conn)
     }
   }
 }
